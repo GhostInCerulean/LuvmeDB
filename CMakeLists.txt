@@ -3,10 +3,13 @@ project(LuvmeDB)
 
 include(cmake/fetch_deps.cmake)
 
-option(LUVMEDB_USE_URING "Use io_uring within boost asio for async file I/O" ON)
 option(LUVMEDB_LTO "Use LTO on release" ON)
 option(LUVMEDB_BUILD_TESTS "Build tests" ON)
 option(LUVMEDB_BUILD_BENCH "Build benchmarks" ON)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    option(LUVMEDB_USE_URING "Use io_uring within boost asio for async file I/O" ON)
+endif ()
 
 if (LUVMEDB_LTO)
     include(CheckIPOSupported)
@@ -32,6 +35,10 @@ add_library(luvmedb_core STATIC
         src/utils/simd/strings.hpp
         src/utils/test.cpp
         src/utils/test.hpp
+        src/storage/pager.cpp
+        src/storage/pager.hpp
+        src/storage/slotted_page.cpp
+        src/storage/slotted_page.hpp
         # add every other .cpp/.hpp here (anything but main.cpp)
 )
 
@@ -52,11 +59,10 @@ target_link_libraries(luvmedb_core PUBLIC
         glaze::glaze
         hwy
         hwy_contrib
-        # highway::hwy # uncomment if strings.cpp uses Highway
         # foonathan_memory
 )
 
-if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND LUVMEDB_USE_URING)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(URING REQUIRED IMPORTED_TARGET liburing)
 

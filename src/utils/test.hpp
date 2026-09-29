@@ -1,6 +1,7 @@
 #pragma once
 #include "pch.hpp"
 
-namespace luvme {
-    string RandomString(usize size);
+namespace luvme
+{
+string RandomString(usize size);
 }
