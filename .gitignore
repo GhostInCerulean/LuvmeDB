@@ -1,0 +1,7 @@
+cmake-*
+.idea
+.vs
+.vscode
+results.json
+report.html
+CMakeCache*
