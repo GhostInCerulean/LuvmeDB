@@ -43,7 +43,6 @@ add_library(luvmedb_core STATIC
         src/utils/memory/bytes.hpp
         src/storage/b_tree.cpp
         src/storage/b_tree.hpp
-        # add every other .cpp/.hpp here (anything but main.cpp)
 )
 
 target_include_directories(luvmedb_core PUBLIC
