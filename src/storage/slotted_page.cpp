@@ -2,131 +2,105 @@
 
 namespace luvme
 {
-SlottedPage::SlottedPage(u8 *page) : page(page)
+
+void SlottedPage::Init(PageKind kind)
 {
+    memset(buf.data(), 0, kPageSize);
+    buf[0] = static_cast<u8>(kind);
+    SetCellTop(kPageSize);
 }
-
-void SlottedPage::Init(PageID id)
+PageKind SlottedPage::Kind() const
 {
-    memset(page, 0, kPageSize);
-    Store<PageID>(0, id);
-    SetNumSlots(0);
-    SetFreeEnd(kPageSize);
+    return static_cast<PageKind>(buf[0]);
 }
-
-u16 SlottedPage::NumSlots() const
+u16 SlottedPage::Count() const
 {
-    return Load<u16>(kNumSlotsPos);
+    return Load<u16>(buf, 2);
 }
-
-u16 SlottedPage::FreeEnd() const
+PageID SlottedPage::Link() const
 {
-    return Load<u16>(kFreeEndPos);
+    return Load<u32>(buf, 8);
 }
-
-usize SlottedPage::ContiguousFree() const
+void SlottedPage::SetLink(PageID id)
 {
-    return FreeEnd() - (kHeaderSize + NumSlots() * kSlotSize);
+    Store<u32>(buf, 8, id);
 }
-
-usize SlottedPage::TotalFree() const
+span<u8> SlottedPage::Cell(u16 i) const
 {
-    auto live = usize(0);
-    for (auto i = u16(0); i < NumSlots(); ++i)
-    {
-        if (SlotOffset(i))
-            live += SlotLength(i);
-    }
-    return kPageSize - kHeaderSize - NumSlots() * kSlotSize - live;
+    u16 off = SlotOff(i);
+    return buf.subspan(off + 2, Load<u16>(buf, off));
 }
-
-optional<u16> SlottedPage::Insert(span<const u8> rec)
+bool SlottedPage::Insert(u16 i, span<const u8> payload)
 {
-    // reuse a tombstoned slot if there is one
-    auto reuse = optional<u16>();
-    for (auto i = u16(0); i < NumSlots(); ++i)
-    {
-        if (SlotOffset(i) == 0)
-        {
-            reuse = i;
-            break;
-        }
-    }
-
-    const auto need = rec.size() + (reuse ? 0 : kSlotSize);
-    if (ContiguousFree() < need)
-    {
-        if (TotalFree() < need)
-            return nullopt; // page is full
-        Compact();
-    }
-
-    const auto off = u16(FreeEnd() - rec.size());
-    memcpy(page + off, rec.data(), rec.size());
-    SetFreeEnd(off);
-
-    const auto slot = reuse ? *reuse : NumSlots();
-    if (!reuse)
-        SetNumSlots(NumSlots() + 1);
-    SetSlot(slot, off, u16(rec.size()));
-    return slot;
-}
-
-optional<span<const u8>> SlottedPage::Get(u16 slot) const
-{
-    if (slot >= NumSlots() || SlotOffset(slot) == 0)
-        return nullopt;
-    return span<const u8>(page + SlotOffset(slot), SlotLength(slot));
-}
-
-bool SlottedPage::Erase(u16 slot)
-{
-    if (slot >= NumSlots() || SlotOffset(slot) == 0)
+    usize cellBytes = payload.size() + 2;
+    usize need = cellBytes + 2; // + slot
+    if (need > FreeSpace() + Garbage())
         return false;
-    SetSlot(slot, 0, 0); // slot ids stay stable; space is reclaimed on Compact
+    if (need > FreeSpace())
+        Compact();
+
+    u16 top = static_cast<u16>(CellTop() - cellBytes);
+    Store<u16>(buf, top, static_cast<u16>(payload.size()));
+    memcpy(buf.data() + top + 2, payload.data(), payload.size());
+
+    u16 n = Count();
+    u8 *slots = buf.data() + kHeader;
+    memmove(slots + 2 * (i + 1), slots + 2 * i, 2 * (n - i));
+    Store<u16>(buf, kHeader + 2 * i, top);
+    SetCount(n + 1);
+    SetCellTop(top);
     return true;
 }
-
-u16 SlottedPage::SlotOffset(u16 i) const
+void SlottedPage::Remove(u16 i)
 {
-    return Load<u16>(kHeaderSize + i * kSlotSize);
+    u16 n = Count();
+    SetGarbage(static_cast<u16>(Garbage() + Cell(i).size() + 2));
+    u8 *slots = buf.data() + kHeader;
+    memmove(slots + 2 * i, slots + 2 * (i + 1), 2 * (n - i - 1));
+    SetCount(n - 1);
 }
-
-u16 SlottedPage::SlotLength(u16 i) const
+u16 SlottedPage::CellTop() const
 {
-    return Load<u16>(kHeaderSize + i * kSlotSize + sizeof(u16));
+    return Load<u16>(buf, 4);
 }
-
-void SlottedPage::SetSlot(u16 i, u16 off, u16 len)
+u16 SlottedPage::Garbage() const
 {
-    Store<u16>(kHeaderSize + i * kSlotSize, off);
-    Store<u16>(kHeaderSize + i * kSlotSize + sizeof(u16), len);
+    return Load<u16>(buf, 6);
 }
-
-void SlottedPage::SetNumSlots(u16 n)
+u16 SlottedPage::SlotOff(u16 i) const
 {
-    Store<u16>(kNumSlotsPos, n);
+    return Load<u16>(buf, kHeader + 2 * i);
 }
-
-void SlottedPage::SetFreeEnd(u16 e)
+usize SlottedPage::FreeSpace() const
 {
-    Store<u16>(kFreeEndPos, e);
+    return CellTop() - (kHeader + 2 * Count());
 }
-
+void SlottedPage::SetCount(u16 n)
+{
+    Store<u16>(buf, 2, n);
+}
+void SlottedPage::SetCellTop(u16 t)
+{
+    Store<u16>(buf, 4, t);
+}
+void SlottedPage::SetGarbage(u16 g)
+{
+    Store<u16>(buf, 6, g);
+}
 void SlottedPage::Compact()
 {
-    auto tmp = array<u8, kPageSize>();
-    auto end = kPageSize;
-    for (auto i = u16(0); i < NumSlots(); ++i)
+    PageBuf tmp;
+    usize top = kPageSize;
+    for (u16 i = 0; i < Count(); ++i)
     {
-        if (!SlotOffset(i))
-            continue;
-        const auto len = SlotLength(i);
-        end -= len;
-        memcpy(tmp.data() + end, page + SlotOffset(i), len);
-        SetSlot(i, u16(end), len);
+        u16 off = SlotOff(i);
+        usize len = Load<u16>(buf, off) + 2;
+        top -= len;
+        memcpy(tmp.data() + top, buf.data() + off, len);
+        Store<u16>(buf, kHeader + 2 * i, static_cast<u16>(top));
     }
-    memcpy(page + end, tmp.data() + end, kPageSize - end);
-    SetFreeEnd(u16(end));
+    memcpy(buf.data() + top, tmp.data() + top, kPageSize - top);
+    SetCellTop(static_cast<u16>(top));
+    SetGarbage(0);
 }
 } // namespace luvme

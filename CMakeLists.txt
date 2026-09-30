@@ -39,6 +39,10 @@ add_library(luvmedb_core STATIC
         src/storage/pager.hpp
         src/storage/slotted_page.cpp
         src/storage/slotted_page.hpp
+        src/utils/memory/bytes.cpp
+        src/utils/memory/bytes.hpp
+        src/storage/b_tree.cpp
+        src/storage/b_tree.hpp
         # add every other .cpp/.hpp here (anything but main.cpp)
 )
 

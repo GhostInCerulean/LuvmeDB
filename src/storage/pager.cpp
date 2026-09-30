@@ -1,123 +1,97 @@
 #include "pager.hpp"
 
+#include "utils/memory/bytes.hpp"
+
 namespace luvme
 {
+namespace
+{
+constexpr u32 kMetaMagic = 0x4C55564D; // "LUVM"
+const auto kTok = asio::as_tuple(asio::use_awaitable);
+} // namespace
+
+Pager::Pager(asio::random_access_file &&f) : file(std::move(f)) {}
+
 awaitable<expected<Pager, SystemErr>> Pager::Open(asio::any_io_executor ex, const filesystem::path &path)
 {
-    auto file = asio::random_access_file(ex);
-    auto err = SystemErr();
-    (void)file.open(path, asio::file_base::read_write | asio::file_base::create, err);
+    asio::random_access_file f(ex);
+    SystemErr ec;
+    f.open(path.string(), asio::random_access_file::read_write | asio::random_access_file::create, ec);
+    if (ec)
+        co_return unexpected(ec);
 
-    if (err)
-    {
-        co_return unexpected(err);
-    }
-    else
-    {
-        co_return Pager(std::move(file));
-    }
-}
+    u64 size = f.size(ec);
+    if (ec)
+        co_return unexpected(ec);
 
-awaitable<optional<SystemErr>> Pager::Init()
-{
-    auto error = SystemErr();
-
-    auto size = file.size(error);
-    if (error)
-        co_return error;
-
-    // brand new file
+    Pager p(std::move(f));
     if (size == 0)
     {
-        pageCount = 1; // page 0 is meta
-        co_return co_await WriteMeta();
+        p.pageCount = 1; // just the meta page
+        if (auto e = co_await p.WriteMeta())
+            co_return unexpected(*e);
+        co_return std::move(p);
     }
 
-    auto buf = make_unique<PageBuf>();
-    auto res = co_await ReadPage(0, buf->Span());
-    if (res)
-        co_return *res;
+    PageBuf m;
+    if (auto e = co_await p.ReadPage(0, m))
+        co_return unexpected(*e);
+    if (Load<u32>(m, 0) != kMetaMagic || Load<u32>(m, 4) != kPageSize)
+        co_return unexpected(Errc(boost::system::errc::bad_message));
 
-    auto magic = u32(0);
-    memcpy(&magic, buf->Span().data(), sizeof(magic));
-    if (magic != kPageMagic)
-        co_return make_error_code(errc::invalid_argument);
-
-    memcpy(&pageCount, buf->Span().data() + sizeof(PageID), sizeof(pageCount));
-
-    co_return nullopt;
+    p.pageCount = static_cast<PageID>(size / kPageSize); // file size is the source of truth
+    p.root = Load<u32>(m, 12);
+    co_return std::move(p);
 }
 
 awaitable<optional<SystemErr>> Pager::ReadPage(PageID id, span<u8> out)
 {
-    auto err = SystemErr();
-    co_await asio::async_read_at(file, Offset(id), asio::buffer(out.data(), kPageSize),
-                                 asio::redirect_error(asio::use_awaitable, err));
-    if (err)
-    {
-        co_return err;
-    }
+    auto [ec, n] = co_await asio::async_read_at(file, Offset(id), asio::buffer(out.first(kPageSize)), kTok);
+    if (ec)
+        co_return ec;
     co_return nullopt;
 }
 
 awaitable<optional<SystemErr>> Pager::WritePage(PageID id, span<const u8> in)
 {
-    auto err = SystemErr();
-    co_await asio::async_write_at(file, Offset(id), asio::buffer(in.data(), kPageSize),
-                                  asio::redirect_error(asio::use_awaitable, err));
-    if (err)
-    {
-        co_return err;
-    }
+    auto [ec, n] = co_await asio::async_write_at(file, Offset(id), asio::buffer(in.first(kPageSize)), kTok);
+    if (ec)
+        co_return ec;
     co_return nullopt;
 }
 
 awaitable<expected<PageID, SystemErr>> Pager::AllocatePage()
 {
-    const auto kZero = PageBuf{};
-
-    auto id = pageCount++;
-    if (auto err = co_await WritePage(id, kZero.Buf))
-        co_return unexpected(*err);
-    if (auto err = co_await WriteMeta())
-        co_return unexpected(*err);
-
+    PageID id = pageCount++;
+    PageBuf zero{};
+    if (auto e = co_await WritePage(id, zero)) // extend the file now so reads never hit EOF
+        co_return unexpected(*e);
+    metaDirty = true;
     co_return id;
-}
-
-awaitable<optional<SystemErr>> Pager::Sync()
-{
-    auto err = SystemErr();
-    file.sync_data(err);
-    if (err)
-    {
-        co_return err;
-    }
-    else
-    {
-        co_return nullopt;
-    }
-}
-
-PageID Pager::GetPageCount() const
-{
-    return pageCount;
-}
-
-Pager::Pager(asio::random_access_file &&file) : file(std::move(file))
-{
 }
 
 awaitable<optional<SystemErr>> Pager::WriteMeta()
 {
-    auto buf = make_unique<PageBuf>();
-    memcpy(buf->Buf.data(), &kPageMagic, sizeof(kPageMagic));
-    memcpy(buf->Buf.data() + sizeof(pageCount), &pageCount, sizeof(pageCount));
-    co_return co_await WritePage(0, buf->Buf);
+    PageBuf m{};
+    Store<u32>(m, 0, kMetaMagic);
+    Store<u32>(m, 4, kPageSize);
+    Store<u32>(m, 8, pageCount);
+    Store<u32>(m, 12, root);
+    if (auto e = co_await WritePage(0, m))
+        co_return e;
+    metaDirty = false;
+    co_return nullopt;
 }
 
-usize Pager::Offset(PageID id)
+awaitable<optional<SystemErr>> Pager::Sync()
 {
-    return usize(id) * kPageSize;
+    if (metaDirty)
+        if (auto e = co_await WriteMeta())
+            co_return e;
+    SystemErr ec;
+    file.sync_all(ec); // NOTE: asio has no async fsync; this blocks the executor thread
+    if (ec)
+        co_return ec;
+    co_return nullopt;
 }
 } // namespace luvme

@@ -1,54 +1,48 @@
+// SlottedPage.hpp
 #pragma once
 #include "pager.hpp"
-#include "pch.hpp"
+#include "utils/memory/bytes.hpp"
 
 namespace luvme
 {
+enum class PageKind : u8
+{
+    Free = 0,
+    Leaf = 1,
+    Internal = 2,
+};
+
+// A non-owning view over one page buffer.
 class SlottedPage
 {
-    // header is page_id u32 | num_slots u16 | free_end u16
-    // slot is   offset u16 | length u16 with offset 0 = tombstone
-    static constexpr usize kHeaderSize = 8;
-    static constexpr usize kSlotSize = 4;
-    static constexpr usize kNumSlotsPos = 4;
-    static constexpr usize kFreeEndPos = 6;
-
-    u8 *page;
+    static constexpr usize kHeader = 12;
+    span<u8> buf;
 
   public:
-    explicit SlottedPage(u8 *page);
+    explicit SlottedPage(span<u8> b) : buf(b) {}
+    void Init(PageKind kind);
 
-    void Init(PageID id);
+    PageKind Kind() const;
+    u16 Count() const;
+    PageID Link() const;
+    void SetLink(PageID id);
 
-    u16 NumSlots() const;
-    u16 FreeEnd() const;
+    span<u8> Cell(u16 i) const;
 
-    usize ContiguousFree() const;
-    usize TotalFree() const;
-
-    optional<u16> Insert(span<const u8> rec);
-    optional<span<const u8>> Get(u16 slot) const;
-    bool Erase(u16 slot);
+    // Returns false (page untouched) if it doesn't fit even after compaction.
+    bool Insert(u16 i, span<const u8> payload);
+    void Remove(u16 i);
 
   private:
-    template <class T> T Load(usize off) const
-    {
-        auto v = T();
-        memcpy(&v, page + off, sizeof(v));
-        return v;
-    }
+    u16 CellTop() const;
+    u16 Garbage() const;
+    u16 SlotOff(u16 i) const;
+    usize FreeSpace() const;
+    void SetCount(u16 n);
+    void SetCellTop(u16 t);
+    void SetGarbage(u16 g);
 
-    template <class T> void Store(usize off, T v)
-    {
-        memcpy(page + off, &v, sizeof(v));
-    }
-
-    u16 SlotOffset(u16 i) const;
-    u16 SlotLength(u16 i) const;
-    void SetSlot(u16 i, u16 off, u16 len);
-    void SetNumSlots(u16 n);
-    void SetFreeEnd(u16 e);
-
+    // Repack live cells against the end of the page, reclaiming garbage.
     void Compact();
 };
 } // namespace luvme
