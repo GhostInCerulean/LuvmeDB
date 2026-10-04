@@ -19,7 +19,7 @@ if (LUVMEDB_LTO)
         message("LTO wanted and supported, enabling it on release")
         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
     else ()
-        message("LTO wanted but not supported")
+        message(WARNING "LTO wanted but not supported")
     endif ()
 endif ()
 
@@ -33,18 +33,16 @@ add_library(luvmedb_core STATIC
         src/pch.hpp
         src/utils/simd/strings.cpp
         src/utils/simd/strings.hpp
-        src/utils/test.cpp
-        src/utils/test.hpp
-        src/storage/pager.cpp
-        src/storage/pager.hpp
-        src/storage/slotted_page.cpp
-        src/storage/slotted_page.hpp
         src/utils/memory/bytes.cpp
         src/utils/memory/bytes.hpp
-        src/storage/b_tree.cpp
-        src/storage/b_tree.hpp
         src/storage/physical_pages.cpp
         src/storage/physical_pages.hpp
+        src/dev/log.hpp
+        src/dev/log.cpp
+        src/storage/page_view.cpp
+        src/storage/page_view.hpp
+        src/storage/page_allocator.cpp
+        src/storage/page_allocator.hpp
 )
 
 target_include_directories(luvmedb_core PUBLIC
@@ -64,6 +62,8 @@ target_link_libraries(luvmedb_core PUBLIC
         glaze::glaze
         hwy
         hwy_contrib
+        quill
+        fmt
         # foonathan_memory
 )
 

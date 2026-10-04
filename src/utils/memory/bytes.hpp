@@ -3,7 +3,6 @@
 
 namespace luvme
 {
-// Host-endian (little-endian assumed). Fine until you care about portable files.
 template <typename T> T Load(span<const u8> b, usize off)
 {
     T v;
