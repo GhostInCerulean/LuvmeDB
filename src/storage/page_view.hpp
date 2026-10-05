@@ -5,7 +5,7 @@
 
 namespace luvme {
     enum class PageType : u8 {
-        Free = 0,
+        Free = 0, // TODO have it be non zero to detect double frees
         Leaf = 1,
         Internal = 2,
         Overflow = 3
