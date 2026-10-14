@@ -4,8 +4,8 @@ project(LuvmeDB)
 include(cmake/fetch_deps.cmake)
 
 option(LUVMEDB_LTO "Use LTO on release" ON)
-option(LUVMEDB_BUILD_TESTS "Build tests" ON)
-option(LUVMEDB_BUILD_BENCH "Build benchmarks" ON)
+option(LUVMEDB_BUILD_TESTS "Build tests" OFF)
+option(LUVMEDB_BUILD_BENCH "Build benchmarks" OFF)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     option(LUVMEDB_USE_URING "Use io_uring within boost asio for async file I/O" ON)
@@ -26,9 +26,7 @@ endif ()
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ---------------------------------------------------------------------------
-# Core library: everything except main.cpp, shared by the app, tests and bench
-# ---------------------------------------------------------------------------
+# everything except main.cpp, shared by tests, benches, and the runner
 add_library(luvmedb_core STATIC
         src/pch.hpp
         src/utils/simd/strings.cpp
@@ -76,9 +74,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND LUVMEDB_USE_URING)
     )
 endif ()
 
-# ---------------------------------------------------------------------------
-# Executable: thin wrapper around the core library
-# ---------------------------------------------------------------------------
+# executable: wrapper around the library, just launch it
 add_executable(LuvmeDB
         src/main.cpp
 )
@@ -87,9 +83,7 @@ target_link_libraries(LuvmeDB PRIVATE
         luvmedb_core
 )
 
-# ---------------------------------------------------------------------------
-# Tests and benchmarks
-# ---------------------------------------------------------------------------
+# tests and benchmarks if enabled
 if (LUVMEDB_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
