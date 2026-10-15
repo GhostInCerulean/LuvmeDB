@@ -3,5 +3,5 @@
 
 namespace luvme
 {
-bool StringContains(string_view str, string_view substr);
+    bool StringContains(std::string_view str, std::string_view substr);
 }

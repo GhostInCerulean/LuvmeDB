@@ -1,14 +1,25 @@
 cmake_minimum_required(VERSION 4.0)
 project(LuvmeDB)
 
-include(cmake/fetch_deps.cmake)
-
 option(LUVMEDB_LTO "Use LTO on release" ON)
+option(LUVMEDB_USE_URING "Use io_uring within boost asio for async file I/O" ON)
+option(LUVMEDB_USE_MIMALLOC "Use mimalloc as allocator instead of malloc" ON)
 option(LUVMEDB_BUILD_TESTS "Build tests" ON)
 option(LUVMEDB_BUILD_BENCH "Build benchmarks" ON)
+option(LUVMEDB_FETCH_DEPS "Fetch dependencies with CPM.cmake" ON)
 
-if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    option(LUVMEDB_USE_URING "Use io_uring within boost asio for async file I/O" ON)
+if (LUVMEDB_USE_MIMALLOC)
+    add_compile_definitions(LUVMEDB_USE_MIMALLOC)
+endif ()
+
+if (LUVMEDB_FETCH_DEPS)
+    include(cmake/fetch_deps.cmake)
+endif ()
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux"
+        AND LUVMEDB_USE_URING)
+    message("Linux detected, enabling io_uring, make sure you have liburing installed")
+    add_compile_definitions(BOOST_ASIO_HAS_IO_URING)
 endif ()
 
 if (LUVMEDB_LTO)
@@ -25,10 +36,8 @@ endif ()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ---------------------------------------------------------------------------
-# Core library: everything except main.cpp, shared by the app, tests and bench
-# ---------------------------------------------------------------------------
 add_library(luvmedb_core STATIC
         src/pch.hpp
         src/utils/simd/strings.cpp
@@ -64,6 +73,7 @@ target_link_libraries(luvmedb_core PUBLIC
         hwy_contrib
         quill
         fmt
+        flux::flux
         # foonathan_memory
 )
 
@@ -76,9 +86,6 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND LUVMEDB_USE_URING)
     )
 endif ()
 
-# ---------------------------------------------------------------------------
-# Executable: thin wrapper around the core library
-# ---------------------------------------------------------------------------
 add_executable(LuvmeDB
         src/main.cpp
 )
@@ -87,9 +94,17 @@ target_link_libraries(LuvmeDB PRIVATE
         luvmedb_core
 )
 
-# ---------------------------------------------------------------------------
-# Tests and benchmarks
-# ---------------------------------------------------------------------------
+# mimalloc
+if (LUVMEDB_USE_MIMALLOC)
+    target_link_libraries(luvmedb_core PUBLIC
+            mimalloc
+    )
+
+    target_link_libraries(LuvmeDB PRIVATE
+            mimalloc
+   )
+endif ()
+
 if (LUVMEDB_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

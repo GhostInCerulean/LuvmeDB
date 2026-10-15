@@ -58,7 +58,7 @@ namespace luvme {
 
     awaitable<void> PageAllocator::Free(PageId id) {
         if (id == kNoPage || id >= pages.GetPageCount()) {
-            throw std::invalid_argument("Free: invalid page id");
+            throw invalid_argument("Free: invalid page id");
         }
 
         PageBuf buf{};

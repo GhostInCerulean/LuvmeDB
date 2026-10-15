@@ -9,7 +9,7 @@ namespace luvme {
         if (size % kPageSize != 0) {
             throw runtime_error("Corrupted pages file: size is not a multiple of the page size");
         }
-        
+
         pages.pageCount = PageId(size / kPageSize);
         co_return std::move(pages);
     }

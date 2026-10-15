@@ -3,6 +3,9 @@
 #include "storage/physical_pages.hpp"
 
 namespace luvme {
+    /// "LUVM"
+    /// Also don't forget magic(k) is just applied psychology.
+    /// There is no transcendence outside of Christ Jesus.
     constexpr u32 kMetaMagic = 0x4C55564D; // "LUVM"
 
      /// allocates pages and owns the meta page

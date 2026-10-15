@@ -1,7 +1,7 @@
 #include "log.hpp"
 
-#include "../../cmake-build-debug/_deps/fmt-src/include/fmt/format.h"
 #include "fmt/core.h"
+#include "fmt/format.h"
 #include "quill/Backend.h"
 #include "quill/Frontend.h"
 #include "quill/LogMacros.h"
